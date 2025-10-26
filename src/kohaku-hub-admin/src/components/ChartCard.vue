@@ -1,3 +1,14 @@
+<template>
+  <el-card class="chart-card">
+    <template #header>
+      <span class="font-bold">{{ title }}</span>
+    </template>
+    <div :style="{ height: height + 'px' }">
+      <Line :data="chartData" :options="chartOptions" />
+    </div>
+  </el-card>
+</template>
+
 <script setup>
 import { ref, watch, onMounted } from "vue";
 import { Line } from "vue-chartjs";
@@ -92,17 +103,6 @@ watch(
   { deep: true },
 );
 </script>
-
-<template>
-  <el-card class="chart-card">
-    <template #header>
-      <span class="font-bold">{{ title }}</span>
-    </template>
-    <div :style="{ height: height + 'px' }">
-      <Line :data="chartData" :options="chartOptions" />
-    </div>
-  </el-card>
-</template>
 
 <style scoped>
 .chart-card {

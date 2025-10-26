@@ -1,7 +1,177 @@
+<template>
+  <div class="page-container bg-white dark:bg-black">
+    <PageHeader :title="title">
+      <template #extra>
+        <el-button
+          @click="loadObjects('')"
+          :icon="'Refresh'"
+          :loading="loading"
+        >
+          Refresh
+        </el-button>
+      </template>
+    </PageHeader>
+
+    <!-- File Explorer (Direct) -->
+    <el-card>
+      <template #header>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="i-carbon-folder-open text-2xl text-blue-600" />
+            <span class="font-bold">Storage Explorer</span>
+          </div>
+          <div
+            class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400"
+          >
+            <span>{{ folderStructure.folders.length }} folders</span>
+            <span>•</span>
+            <span>{{ folderStructure.files.length }} files</span>
+            <span>•</span>
+            <span>{{ objects.length }} total objects</span>
+          </div>
+        </div>
+      </template>
+
+      <!-- Breadcrumb Navigation -->
+      <div class="breadcrumb-container">
+        <el-button
+          size="small"
+          @click="navigateUp"
+          :icon="'ArrowLeft'"
+          class="mr-2"
+          :disabled="pathParts.length === 0"
+        >
+          Up
+        </el-button>
+
+        <el-breadcrumb separator="/" class="flex-1">
+          <el-breadcrumb-item
+            @click="navigateToBreadcrumb(-1)"
+            class="breadcrumb-item"
+          >
+            <div class="i-carbon-home text-blue-600" />
+            <span class="ml-1">Root</span>
+          </el-breadcrumb-item>
+          <el-breadcrumb-item
+            v-for="(part, index) in pathParts"
+            :key="index"
+            @click="navigateToBreadcrumb(index)"
+            class="breadcrumb-item"
+          >
+            <div class="i-carbon-folder text-orange-600" />
+            <span class="ml-1">{{ part }}</span>
+          </el-breadcrumb-item>
+        </el-breadcrumb>
+      </div>
+
+      <!-- File Explorer View -->
+      <div v-loading="loading">
+        <el-empty
+          v-if="!loading && objects.length === 0"
+          description="Storage is empty"
+        />
+
+        <div v-else class="explorer-container">
+          <!-- Folders List -->
+          <div v-if="folderStructure.folders.length > 0" class="mb-4">
+            <div class="section-header">
+              <div class="i-carbon-folder text-orange-600" />
+              <span>Folders ({{ folderStructure.folders.length }})</span>
+            </div>
+            <div class="folder-grid">
+              <div
+                v-for="folder in folderStructure.folders"
+                :key="folder"
+                class="folder-item"
+              >
+                <div
+                  @click="navigateToFolder(folder)"
+                  class="flex items-center gap-2 flex-1 cursor-pointer"
+                >
+                  <div class="i-carbon-folder text-4xl text-orange-500" />
+                  <span class="folder-name">{{ folder }}</span>
+                </div>
+                <el-button
+                  size="small"
+                  type="danger"
+                  text
+                  @click.stop="confirmDeleteFolder(folder)"
+                >
+                  Delete
+                </el-button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Files Table -->
+          <div v-if="folderStructure.files.length > 0">
+            <div class="section-header">
+              <div class="i-carbon-document text-blue-600" />
+              <span>Files ({{ folderStructure.files.length }})</span>
+            </div>
+            <el-table :data="folderStructure.files" stripe max-height="500">
+              <el-table-column label="Name" min-width="300">
+                <template #default="{ row }">
+                  <div class="flex items-center gap-2">
+                    <div
+                      :class="getFileIcon(row.name)"
+                      class="text-lg text-gray-600 dark:text-gray-400"
+                    />
+                    <code class="text-sm font-mono">{{ row.name }}</code>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="Size" width="120" align="right">
+                <template #default="{ row }">
+                  <span class="font-mono text-sm">{{
+                    formatBytes(row.size)
+                  }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="Storage Class" width="150">
+                <template #default="{ row }">
+                  <el-tag size="small" type="info">
+                    {{ row.storage_class }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="Last Modified" width="180">
+                <template #default="{ row }">
+                  {{ formatDate(row.last_modified) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="Actions" width="100" fixed="right">
+                <template #default="{ row }">
+                  <el-button
+                    size="small"
+                    type="danger"
+                    text
+                    @click="confirmDeleteObject(row.key)"
+                  >
+                    Delete
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <!-- Empty folder message -->
+          <el-empty
+            v-if="
+              folderStructure.folders.length === 0 &&
+              folderStructure.files.length === 0
+            "
+            description="This folder is empty"
+          />
+        </div>
+      </div>
+    </el-card>
+  </div>
+</template>
+
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import AdminLayout from "@/components/AdminLayout.vue";
 import { useAdminStore } from "@/stores/admin";
 import {
   listS3Buckets,
@@ -20,6 +190,8 @@ const objects = ref([]);
 const loading = ref(false);
 const currentPath = ref("");
 const pathParts = ref([]);
+
+const title = ref("Storage Explorer");
 
 // Computed: Parse objects into folders and files
 const folderStructure = computed(() => {
@@ -208,180 +380,6 @@ onMounted(() => {
   loadObjects(""); // Load root directly
 });
 </script>
-
-<template>
-  <AdminLayout>
-    <div class="page-container">
-      <div class="flex justify-between items-center mb-6">
-        <h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100">
-          Storage Browser
-        </h1>
-        <el-button
-          @click="loadObjects('')"
-          :icon="'Refresh'"
-          :loading="loading"
-        >
-          Refresh
-        </el-button>
-      </div>
-
-      <!-- File Explorer (Direct) -->
-      <el-card>
-        <template #header>
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <div class="i-carbon-folder-open text-2xl text-blue-600" />
-              <span class="font-bold">Storage Explorer</span>
-            </div>
-            <div
-              class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400"
-            >
-              <span>{{ folderStructure.folders.length }} folders</span>
-              <span>•</span>
-              <span>{{ folderStructure.files.length }} files</span>
-              <span>•</span>
-              <span>{{ objects.length }} total objects</span>
-            </div>
-          </div>
-        </template>
-
-        <!-- Breadcrumb Navigation -->
-        <div class="breadcrumb-container">
-          <el-button
-            size="small"
-            @click="navigateUp"
-            :icon="'ArrowLeft'"
-            class="mr-2"
-            :disabled="pathParts.length === 0"
-          >
-            Up
-          </el-button>
-
-          <el-breadcrumb separator="/" class="flex-1">
-            <el-breadcrumb-item
-              @click="navigateToBreadcrumb(-1)"
-              class="breadcrumb-item"
-            >
-              <div class="i-carbon-home text-blue-600" />
-              <span class="ml-1">Root</span>
-            </el-breadcrumb-item>
-            <el-breadcrumb-item
-              v-for="(part, index) in pathParts"
-              :key="index"
-              @click="navigateToBreadcrumb(index)"
-              class="breadcrumb-item"
-            >
-              <div class="i-carbon-folder text-orange-600" />
-              <span class="ml-1">{{ part }}</span>
-            </el-breadcrumb-item>
-          </el-breadcrumb>
-        </div>
-
-        <!-- File Explorer View -->
-        <div v-loading="loading">
-          <el-empty
-            v-if="!loading && objects.length === 0"
-            description="Storage is empty"
-          />
-
-          <div v-else class="explorer-container">
-            <!-- Folders List -->
-            <div v-if="folderStructure.folders.length > 0" class="mb-4">
-              <div class="section-header">
-                <div class="i-carbon-folder text-orange-600" />
-                <span>Folders ({{ folderStructure.folders.length }})</span>
-              </div>
-              <div class="folder-grid">
-                <div
-                  v-for="folder in folderStructure.folders"
-                  :key="folder"
-                  class="folder-item"
-                >
-                  <div
-                    @click="navigateToFolder(folder)"
-                    class="flex items-center gap-2 flex-1 cursor-pointer"
-                  >
-                    <div class="i-carbon-folder text-4xl text-orange-500" />
-                    <span class="folder-name">{{ folder }}</span>
-                  </div>
-                  <el-button
-                    size="small"
-                    type="danger"
-                    text
-                    @click.stop="confirmDeleteFolder(folder)"
-                  >
-                    Delete
-                  </el-button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Files Table -->
-            <div v-if="folderStructure.files.length > 0">
-              <div class="section-header">
-                <div class="i-carbon-document text-blue-600" />
-                <span>Files ({{ folderStructure.files.length }})</span>
-              </div>
-              <el-table :data="folderStructure.files" stripe max-height="500">
-                <el-table-column label="Name" min-width="300">
-                  <template #default="{ row }">
-                    <div class="flex items-center gap-2">
-                      <div
-                        :class="getFileIcon(row.name)"
-                        class="text-lg text-gray-600 dark:text-gray-400"
-                      />
-                      <code class="text-sm font-mono">{{ row.name }}</code>
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Size" width="120" align="right">
-                  <template #default="{ row }">
-                    <span class="font-mono text-sm">{{
-                      formatBytes(row.size)
-                    }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Storage Class" width="150">
-                  <template #default="{ row }">
-                    <el-tag size="small" type="info">
-                      {{ row.storage_class }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Last Modified" width="180">
-                  <template #default="{ row }">
-                    {{ formatDate(row.last_modified) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="Actions" width="100" fixed="right">
-                  <template #default="{ row }">
-                    <el-button
-                      size="small"
-                      type="danger"
-                      text
-                      @click="confirmDeleteObject(row.key)"
-                    >
-                      Delete
-                    </el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </div>
-
-            <!-- Empty folder message -->
-            <el-empty
-              v-if="
-                folderStructure.folders.length === 0 &&
-                folderStructure.files.length === 0
-              "
-              description="This folder is empty"
-            />
-          </div>
-        </div>
-      </el-card>
-    </div>
-  </AdminLayout>
-</template>
 
 <style scoped>
 .page-container {

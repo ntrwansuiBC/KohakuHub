@@ -13,11 +13,8 @@ onMounted(() => {
   themeStore.init();
 
   // Redirect to login if not authenticated
-  if (
-    !adminStore.isAuthenticated &&
-    router.currentRoute.value.path !== "/login"
-  ) {
-    router.push("/login");
+  if (!adminStore.isAuthenticated && router.currentRoute.value.path !== "/") {
+    router.push("/");
   }
 });
 </script>

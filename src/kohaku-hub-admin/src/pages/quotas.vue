@@ -13,7 +13,7 @@ onMounted(() => {
   }
 
   // Redirect to new Quota Overview page
-  router.push("/QuotaOverview");
+  router.push("/quota-overview");
 });
 </script>
 

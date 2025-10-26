@@ -1,7 +1,121 @@
+<template>
+  <div class="page-container bg-white dark:bg-black">
+    <PageHeader :title="title" />
+
+    <!-- Filters -->
+    <el-card class="mb-4">
+      <div class="flex gap-4 items-end">
+        <el-form-item label="Repository ID" class="filter-item">
+          <el-input
+            v-model="filterRepoId"
+            placeholder="e.g., org/repo-name"
+            clearable
+            style="width: 250px"
+          />
+        </el-form-item>
+
+        <el-form-item label="Author" class="filter-item">
+          <el-input
+            v-model="filterUsername"
+            placeholder="Filter by username"
+            clearable
+            style="width: 200px"
+          />
+        </el-form-item>
+        <el-form-item class="filter-item">
+          <el-button type="primary" @click="applyFilters">
+            Apply Filters
+          </el-button>
+        </el-form-item>
+
+        <el-form-item class="filter-item">
+          <el-button @click="resetFilters"> Reset </el-button>
+        </el-form-item>
+      </div>
+    </el-card>
+
+    <!-- Commits Table -->
+    <el-card>
+      <el-empty
+        v-if="!loading && commits.length === 0"
+        description="No commits found"
+      />
+      <el-table
+        v-else
+        :data="sortedCommits"
+        v-loading="loading"
+        stripe
+        @sort-change="handleSortChange"
+        :default-sort="{ prop: 'created_at', order: 'descending' }"
+      >
+        <el-table-column prop="id" label="ID" width="80" sortable="custom" />
+        <el-table-column label="Commit SHA" width="120">
+          <template #default="{ row }">
+            <code class="text-xs font-mono text-gray-600 dark:text-gray-400">{{
+              truncateCommitId(row.commit_id)
+            }}</code>
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="repo_full_id"
+          label="Repository"
+          min-width="200"
+          sortable="custom"
+        >
+          <template #default="{ row }">
+            <div class="flex items-center gap-2">
+              <el-tag :type="getRepoTypeColor(row.repo_type)" size="small">
+                {{ row.repo_type }}
+              </el-tag>
+              <span class="font-mono text-sm">{{ row.repo_full_id }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="branch" label="Branch" width="120" />
+        <el-table-column
+          prop="username"
+          label="Author"
+          width="150"
+          sortable="custom"
+        />
+        <el-table-column label="Message" min-width="250">
+          <template #default="{ row }">
+            <div class="text-sm" :title="row.message">
+              {{ truncateMessage(row.message) }}
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="created_at"
+          label="Created"
+          width="180"
+          sortable="custom"
+        >
+          <template #default="{ row }">
+            {{ formatDate(row.created_at) }}
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <!-- Pagination -->
+      <div class="mt-4 flex justify-center">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="sizes, prev, pager, next"
+          :total="commits.length"
+          @current-change="loadCommits"
+          @size-change="loadCommits"
+        />
+      </div>
+    </el-card>
+  </div>
+</template>
+
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import AdminLayout from "@/components/AdminLayout.vue";
 import { useAdminStore } from "@/stores/admin";
 import { listCommits } from "@/utils/api";
 import { ElMessage } from "element-plus";
@@ -11,6 +125,8 @@ const router = useRouter();
 const adminStore = useAdminStore();
 const commits = ref([]);
 const loading = ref(false);
+
+const title = ref("Commit History");
 
 // Filters
 const filterRepoId = ref("");
@@ -155,127 +271,13 @@ onMounted(() => {
 });
 </script>
 
-<template>
-  <AdminLayout>
-    <div class="page-container">
-      <div class="flex justify-between items-center mb-6">
-        <h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100">
-          Commit History
-        </h1>
-      </div>
-
-      <!-- Filters -->
-      <el-card class="mb-4">
-        <div class="flex gap-4 items-end">
-          <el-form-item label="Repository ID" class="mb-0">
-            <el-input
-              v-model="filterRepoId"
-              placeholder="e.g., org/repo-name"
-              clearable
-              style="width: 250px"
-            />
-          </el-form-item>
-
-          <el-form-item label="Author" class="mb-0">
-            <el-input
-              v-model="filterUsername"
-              placeholder="Filter by username"
-              clearable
-              style="width: 200px"
-            />
-          </el-form-item>
-
-          <el-button type="primary" @click="applyFilters"
-            >Apply Filters</el-button
-          >
-          <el-button @click="resetFilters">Reset</el-button>
-        </div>
-      </el-card>
-
-      <!-- Commits Table -->
-      <el-card>
-        <el-empty
-          v-if="!loading && commits.length === 0"
-          description="No commits found"
-        />
-        <el-table
-          v-else
-          :data="sortedCommits"
-          v-loading="loading"
-          stripe
-          @sort-change="handleSortChange"
-          :default-sort="{ prop: 'created_at', order: 'descending' }"
-        >
-          <el-table-column prop="id" label="ID" width="80" sortable="custom" />
-          <el-table-column label="Commit SHA" width="120">
-            <template #default="{ row }">
-              <code
-                class="text-xs font-mono text-gray-600 dark:text-gray-400"
-                >{{ truncateCommitId(row.commit_id) }}</code
-              >
-            </template>
-          </el-table-column>
-          <el-table-column
-            prop="repo_full_id"
-            label="Repository"
-            min-width="200"
-            sortable="custom"
-          >
-            <template #default="{ row }">
-              <div class="flex items-center gap-2">
-                <el-tag :type="getRepoTypeColor(row.repo_type)" size="small">
-                  {{ row.repo_type }}
-                </el-tag>
-                <span class="font-mono text-sm">{{ row.repo_full_id }}</span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column prop="branch" label="Branch" width="120" />
-          <el-table-column
-            prop="username"
-            label="Author"
-            width="150"
-            sortable="custom"
-          />
-          <el-table-column label="Message" min-width="250">
-            <template #default="{ row }">
-              <div class="text-sm" :title="row.message">
-                {{ truncateMessage(row.message) }}
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column
-            prop="created_at"
-            label="Created"
-            width="180"
-            sortable="custom"
-          >
-            <template #default="{ row }">
-              {{ formatDate(row.created_at) }}
-            </template>
-          </el-table-column>
-        </el-table>
-
-        <!-- Pagination -->
-        <div class="mt-4 flex justify-center">
-          <el-pagination
-            v-model:current-page="currentPage"
-            v-model:page-size="pageSize"
-            :page-sizes="[10, 20, 50, 100]"
-            layout="sizes, prev, pager, next"
-            :total="commits.length"
-            @current-change="loadCommits"
-            @size-change="loadCommits"
-          />
-        </div>
-      </el-card>
-    </div>
-  </AdminLayout>
-</template>
-
 <style scoped>
 .page-container {
   padding: 24px;
+}
+
+.filter-item {
+  margin-bottom: 0;
 }
 
 :deep(.el-card) {

@@ -1,3 +1,18 @@
+<template>
+  <el-card shadow="hover" class="stat-card-wrapper">
+    <div class="stat-card" :class="colorClasses[color]">
+      <div :class="icon" class="text-5xl mb-3 opacity-80" />
+      <div class="text-5xl font-bold mb-2">{{ value }}</div>
+      <div class="text-lg opacity-90" :class="{ 'mb-2': subtitle }">
+        {{ title }}
+      </div>
+      <div v-if="subtitle" class="text-sm opacity-75">
+        {{ subtitle }}
+      </div>
+    </div>
+  </el-card>
+</template>
+
 <script setup>
 /**
  * @typedef {Object} Props
@@ -45,21 +60,6 @@ const colorClasses = {
   red: "from-red-500 to-red-600",
 };
 </script>
-
-<template>
-  <el-card shadow="hover" class="stat-card-wrapper">
-    <div class="stat-card" :class="colorClasses[color]">
-      <div :class="icon" class="text-5xl mb-3 opacity-80" />
-      <div class="text-5xl font-bold mb-2">{{ value }}</div>
-      <div class="text-lg opacity-90" :class="{ 'mb-2': subtitle }">
-        {{ title }}
-      </div>
-      <div v-if="subtitle" class="text-sm opacity-75">
-        {{ subtitle }}
-      </div>
-    </div>
-  </el-card>
-</template>
 
 <style scoped>
 .stat-card-wrapper {

@@ -8,7 +8,6 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
-    AdminLayout: typeof import('./components/AdminLayout.vue')['default']
     ChartCard: typeof import('./components/ChartCard.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAside: typeof import('element-plus/es')['ElAside']
@@ -47,6 +46,7 @@ declare module 'vue' {
     FileTree: typeof import('./components/FileTree.vue')['default']
     GlobalSearch: typeof import('./components/GlobalSearch.vue')['default']
     HelloWorld: typeof import('./components/HelloWorld.vue')['default']
+    PageHeader: typeof import('./components/PageHeader.vue')['default']
     QuotaManager: typeof import('./components/QuotaManager.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

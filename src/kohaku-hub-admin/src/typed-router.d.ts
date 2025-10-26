@@ -19,16 +19,17 @@ declare module 'vue-router/auto-routes' {
    */
   export interface RouteNamedMap {
     '/': RouteRecordInfo<'/', '/', Record<never, never>, Record<never, never>>,
-    '/commits': RouteRecordInfo<'/commits', '/commits', Record<never, never>, Record<never, never>>,
-    '/DatabaseViewer': RouteRecordInfo<'/DatabaseViewer', '/DatabaseViewer', Record<never, never>, Record<never, never>>,
-    '/fallback-sources': RouteRecordInfo<'/fallback-sources', '/fallback-sources', Record<never, never>, Record<never, never>>,
-    '/invitations': RouteRecordInfo<'/invitations', '/invitations', Record<never, never>, Record<never, never>>,
-    '/login': RouteRecordInfo<'/login', '/login', Record<never, never>, Record<never, never>>,
-    '/QuotaOverview': RouteRecordInfo<'/QuotaOverview', '/QuotaOverview', Record<never, never>, Record<never, never>>,
+    '/container': RouteRecordInfo<'/container', '/container', Record<never, never>, Record<never, never>, '/container/commits/' | '/container/dashboard/' | '/container/database/' | '/container/fallback-sources/' | '/container/invitations/' | '/container/quota-overview/' | '/container/repositories/' | '/container/storage/' | '/container/users/'>,
+    '/container/commits/': RouteRecordInfo<'/container/commits/', '/container/commits', Record<never, never>, Record<never, never>>,
+    '/container/dashboard/': RouteRecordInfo<'/container/dashboard/', '/container/dashboard', Record<never, never>, Record<never, never>>,
+    '/container/database/': RouteRecordInfo<'/container/database/', '/container/database', Record<never, never>, Record<never, never>>,
+    '/container/fallback-sources/': RouteRecordInfo<'/container/fallback-sources/', '/container/fallback-sources', Record<never, never>, Record<never, never>>,
+    '/container/invitations/': RouteRecordInfo<'/container/invitations/', '/container/invitations', Record<never, never>, Record<never, never>>,
+    '/container/quota-overview/': RouteRecordInfo<'/container/quota-overview/', '/container/quota-overview', Record<never, never>, Record<never, never>>,
+    '/container/repositories/': RouteRecordInfo<'/container/repositories/', '/container/repositories', Record<never, never>, Record<never, never>>,
+    '/container/storage/': RouteRecordInfo<'/container/storage/', '/container/storage', Record<never, never>, Record<never, never>>,
+    '/container/users/': RouteRecordInfo<'/container/users/', '/container/users', Record<never, never>, Record<never, never>>,
     '/quotas': RouteRecordInfo<'/quotas', '/quotas', Record<never, never>, Record<never, never>>,
-    '/repositories': RouteRecordInfo<'/repositories', '/repositories', Record<never, never>, Record<never, never>>,
-    '/storage': RouteRecordInfo<'/storage', '/storage', Record<never, never>, Record<never, never>>,
-    '/users': RouteRecordInfo<'/users', '/users', Record<never, never>, Record<never, never>>,
   }
 
   /**
@@ -46,44 +47,48 @@ declare module 'vue-router/auto-routes' {
       routes: '/'
       views: never
     }
-    'src/pages/commits.vue': {
-      routes: '/commits'
+    'src/pages/container.vue': {
+      routes: '/container' | '/container/commits/' | '/container/dashboard/' | '/container/database/' | '/container/fallback-sources/' | '/container/invitations/' | '/container/quota-overview/' | '/container/repositories/' | '/container/storage/' | '/container/users/' | '/container/commits' | '/container/dashboard' | '/container/database' | '/container/fallback-sources' | '/container/invitations' | '/container/quota-overview' | '/container/repositories' | '/container/storage' | '/container/users'
+      views: 'default'
+    }
+    'src/pages/container/commits/index.vue': {
+      routes: '/container/commits/'
       views: never
     }
-    'src/pages/DatabaseViewer.vue': {
-      routes: '/DatabaseViewer'
+    'src/pages/container/dashboard/index.vue': {
+      routes: '/container/dashboard/'
       views: never
     }
-    'src/pages/fallback-sources.vue': {
-      routes: '/fallback-sources'
+    'src/pages/container/database/index.vue': {
+      routes: '/container/database/'
       views: never
     }
-    'src/pages/invitations.vue': {
-      routes: '/invitations'
+    'src/pages/container/fallback-sources/index.vue': {
+      routes: '/container/fallback-sources/'
       views: never
     }
-    'src/pages/login.vue': {
-      routes: '/login'
+    'src/pages/container/invitations/index.vue': {
+      routes: '/container/invitations/'
       views: never
     }
-    'src/pages/QuotaOverview.vue': {
-      routes: '/QuotaOverview'
+    'src/pages/container/quota-overview/index.vue': {
+      routes: '/container/quota-overview/'
+      views: never
+    }
+    'src/pages/container/repositories/index.vue': {
+      routes: '/container/repositories/'
+      views: never
+    }
+    'src/pages/container/storage/index.vue': {
+      routes: '/container/storage/'
+      views: never
+    }
+    'src/pages/container/users/index.vue': {
+      routes: '/container/users/'
       views: never
     }
     'src/pages/quotas.vue': {
       routes: '/quotas'
-      views: never
-    }
-    'src/pages/repositories.vue': {
-      routes: '/repositories'
-      views: never
-    }
-    'src/pages/storage.vue': {
-      routes: '/storage'
-      views: never
-    }
-    'src/pages/users.vue': {
-      routes: '/users'
       views: never
     }
   }

@@ -50,13 +50,13 @@ python scripts/generate_secret.py 64
 - Auto-redirect if already authenticated
 - Token stored in localStorage
 
-### 2. Dashboard (`/`)
+### 2. Dashboard (`/container/dashboard`)
 - System statistics overview
 - Total users, organizations, repositories
 - Private vs public repository counts
 - Quick action buttons
 
-### 3. User Management (`/users`)
+### 3. User Management (`/container/users`)
 - List all users with pagination
 - View detailed user information
 - Create new users with custom quotas
@@ -64,7 +64,7 @@ python scripts/generate_secret.py 64
 - Toggle email verification status
 - View storage usage per user
 
-### 4. Quota Management (`/quotas`)
+### 4. Quota Management (`/container/quotas`)
 - Search by username or organization
 - View private/public quota separately
 - Set quotas with human-readable sizes (10GB, 50GB, etc.)
@@ -72,12 +72,12 @@ python scripts/generate_secret.py 64
 - Visual progress bars
 - Detailed usage statistics
 
-### 5. Database Viewer (`/database`)
+### 5. Database Viewer (`/container/database`)
 - Raw, read-only access to database tables
 - Useful for debugging and data inspection
 - Supports pagination and sorting
 
-### 6. Fallback Sources (`/fallback-sources`)
+### 6. Fallback Sources (`/container/fallback-sources`)
 - Configure external sources (e.g., HuggingFace)
 - Set priority and credentials for fallback repositories
 - Enable/disable sources globally
