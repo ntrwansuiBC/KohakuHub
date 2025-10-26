@@ -48,7 +48,7 @@ declare module 'vue-router/auto-routes' {
       views: never
     }
     'src/pages/container.vue': {
-      routes: '/container' | '/container/commits/' | '/container/dashboard/' | '/container/database/' | '/container/fallback-sources/' | '/container/invitations/' | '/container/quota-overview/' | '/container/repositories/' | '/container/storage/' | '/container/users/' | '/container/commits' | '/container/dashboard' | '/container/database' | '/container/fallback-sources' | '/container/invitations' | '/container/quota-overview' | '/container/repositories' | '/container/storage' | '/container/users'
+      routes: '/container' | '/container/commits/' | '/container/fallback-sources/' | '/container/database/' | '/container/dashboard/' | '/container/invitations/' | '/container/repositories/' | '/container/quota-overview/' | '/container/storage/' | '/container/users/' | '/container/commits' | '/container/dashboard' | '/container/database' | '/container/fallback-sources' | '/container/invitations' | '/container/quota-overview' | '/container/repositories' | '/container/storage' | '/container/users'
       views: 'default'
     }
     'src/pages/container/commits/index.vue': {
