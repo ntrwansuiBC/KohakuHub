@@ -1,24 +1,25 @@
 <script setup>
 import { ref, onMounted } from "vue";
-import { fetchExperiments } from "@/utils/api";
+import { fetchProjects } from "@/utils/api";
 import { useRouter } from "vue-router";
 
 const router = useRouter();
-const experiments = ref([]);
+const projects = ref([]);
 const loading = ref(true);
 
 onMounted(async () => {
   try {
-    experiments.value = await fetchExperiments();
+    const result = await fetchProjects();
+    projects.value = result.projects;
   } catch (error) {
-    console.error("Failed to fetch experiments:", error);
+    console.error("Failed to fetch projects:", error);
   } finally {
     loading.value = false;
   }
 });
 
-function viewExperiment(id) {
-  router.push(`/experiments/${id}`);
+function viewProject(projectName) {
+  router.push(`/projects/${projectName}`);
 }
 
 function formatDate(timestamp) {
@@ -47,76 +48,37 @@ function formatSteps(steps) {
     </div>
 
     <div v-if="loading" class="text-center py-12">
-      <div class="text-gray-500 dark:text-gray-400">Loading experiments...</div>
+      <div class="text-gray-500 dark:text-gray-400">Loading projects...</div>
     </div>
 
     <div
-      v-else-if="experiments.length === 0"
+      v-else-if="projects.length === 0"
       class="bg-white dark:bg-gray-900 rounded-lg shadow-md p-8 text-center border border-gray-200 dark:border-gray-800"
     >
-      <div class="text-gray-500 dark:text-gray-400 mb-4">No boards found</div>
+      <div class="text-gray-500 dark:text-gray-400 mb-4">No projects found</div>
       <p class="text-sm text-gray-400 dark:text-gray-500">
         Start tracking your ML experiments with KohakuBoard client library.
-        <br />
-        Boards are automatically discovered from:
-        <code class="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
-          >./kohakuboard</code
-        >
       </p>
     </div>
 
     <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       <div
-        v-for="experiment in experiments"
-        :key="experiment.id"
-        @click="viewExperiment(experiment.id)"
-        class="bg-white dark:bg-gray-900 rounded-lg shadow-md p-4 cursor-pointer hover:shadow-lg transition-all border border-gray-200 dark:border-gray-800 hover:border-blue-400 dark:hover:border-blue-600"
+        v-for="project in projects"
+        :key="project.name"
+        @click="viewProject(project.name)"
+        class="bg-white dark:bg-gray-900 rounded-lg shadow-md p-6 cursor-pointer hover:shadow-lg transition-all border border-gray-200 dark:border-gray-800 hover:border-blue-400 dark:hover:border-blue-600"
       >
-        <div class="flex items-start justify-between mb-3">
-          <h3 class="font-semibold text-lg text-gray-900 dark:text-gray-100">
-            {{ experiment.name }}
-          </h3>
-          <span
-            class="px-2 py-1 text-xs rounded font-medium"
-            :class="{
-              'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400':
-                experiment.status === 'completed',
-              'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400':
-                experiment.status === 'running',
-              'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400':
-                experiment.status === 'stopped',
-            }"
-          >
-            {{ experiment.status }}
-          </span>
+        <h3 class="font-semibold text-xl text-gray-900 dark:text-gray-100 mb-2">
+          {{ project.display_name }}
+        </h3>
+        <div class="text-gray-600 dark:text-gray-400 mb-4">
+          {{ project.run_count }} {{ project.run_count === 1 ? "run" : "runs" }}
         </div>
-
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
-          {{ experiment.description }}
-        </p>
-
-        <div class="grid grid-cols-2 gap-2 text-sm">
-          <div>
-            <div class="text-gray-500 dark:text-gray-500">Board ID</div>
-            <div
-              class="font-mono text-xs text-gray-900 dark:text-gray-100 truncate"
-              :title="experiment.id"
-            >
-              {{ experiment.id }}
-            </div>
-          </div>
-          <div>
-            <div class="text-gray-500 dark:text-gray-500">Status</div>
-            <div class="font-medium text-gray-900 dark:text-gray-100">
-              {{ experiment.status }}
-            </div>
-          </div>
-        </div>
-
         <div
-          class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-500"
+          v-if="project.updated_at"
+          class="text-xs text-gray-500 dark:text-gray-500"
         >
-          Created: {{ formatDate(experiment.created_at) }}
+          Updated: {{ formatDate(project.updated_at) }}
         </div>
       </div>
     </div>

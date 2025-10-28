@@ -61,7 +61,7 @@ class Board:
         config: Optional[Dict[str, Any]] = None,
         base_dir: Optional[Union[str, Path]] = None,
         capture_output: bool = True,
-        backend: str = "duckdb",
+        backend: str = "hybrid",
     ):
         """Create a new Board for logging
 
@@ -71,12 +71,12 @@ class Board:
             config: Configuration dict for this run (hyperparameters, etc.)
             base_dir: Base directory for boards (default: ./kohakuboard)
             capture_output: Whether to capture stdout/stderr to log file
-            backend: Storage backend ("duckdb" or "parquet", default: "duckdb")
+            backend: Storage backend ("hybrid", "duckdb", or "parquet", default: "hybrid")
         """
         # Validate backend
-        if backend not in ("duckdb", "parquet"):
+        if backend not in ("hybrid", "duckdb", "parquet"):
             raise ValueError(
-                f"Invalid backend: {backend}. Must be 'duckdb' or 'parquet'"
+                f"Invalid backend: {backend}. Must be 'hybrid', 'duckdb', or 'parquet'"
             )
 
         # Board metadata
@@ -100,17 +100,25 @@ class Board:
         # _step increments on EVERY log/media/table call (auto-increment)
         # _global_step is set explicitly via step() method
         self._step = -1  # Start at -1, will be 0 on first log
-        self._global_step: Optional[int] = None
+        self._global_step: int = 0  # Start at 0, NOT None!
 
-        # Multiprocessing setup
-        self.queue = mp.Queue(maxsize=10000)  # Large queue for buffering
+        # Shutdown tracking
+        self._is_finishing = False  # Prevent re-entrant finish() calls
+        self._interrupt_count = 0  # Track Ctrl+C presses for force exit
+
+        # Multiprocessing setup - use Manager.Queue to avoid Windows deadlock
+        # See: https://bugs.python.org/issue29797
+        manager = mp.Manager()
+        self.queue = manager.Queue(maxsize=50000)
         self.stop_event = mp.Event()
 
-        # Start writer process
+        # Start single writer process
+        from kohakuboard.client.writer import writer_process_main
+
         self.writer_process = mp.Process(
             target=writer_process_main,
             args=(self.board_dir, self.queue, self.stop_event, self.backend),
-            daemon=False,  # Not daemon - we want clean shutdown
+            daemon=False,
         )
         self.writer_process.start()
 
@@ -312,6 +320,62 @@ class Board:
         }
         self.queue.put(message)
 
+    def log_histogram(
+        self,
+        name: str,
+        values: Union[List[float], Any],
+        num_bins: int = 64,
+        precision: str = "exact",
+    ):
+        """Log histogram data (non-blocking)
+
+        Args:
+            name: Name for this histogram log (supports namespace: "gradients/layer1")
+            values: List of values or tensor to create histogram from
+            num_bins: Number of bins for histogram (default: 64)
+            precision: "exact" (int32, default) or "compact" (uint8, ~1% loss)
+
+        Example:
+            >>> # Log gradient histogram (compact)
+            >>> grads = [p.grad.flatten().cpu().numpy() for p in model.parameters()]
+            >>> board.log_histogram("gradients/all", np.concatenate(grads))
+            >>>
+            >>> # Log parameter histogram (exact counts)
+            >>> params = model.fc1.weight.detach().cpu().numpy().flatten()
+            >>> board.log_histogram("params/fc1_weight", params, precision="exact")
+        """
+        # Increment step (auto-increment on every log call)
+        self._step += 1
+
+        # Check queue size and warn if getting full
+        try:
+            queue_size = self.queue.qsize()
+            if queue_size > 40000:
+                logger.warning(
+                    f"Queue size is {queue_size}/50000. Consider reducing logging frequency."
+                )
+        except NotImplementedError:
+            pass  # qsize() not supported on all platforms
+
+        # Convert tensor to list if needed
+        if hasattr(values, "cpu"):  # PyTorch tensor
+            values = values.detach().cpu().numpy().flatten().tolist()
+        elif hasattr(values, "numpy"):  # NumPy array
+            values = values.flatten().tolist()
+        elif not isinstance(values, list):
+            values = list(values)
+
+        message = {
+            "type": "histogram",
+            "step": self._step,
+            "global_step": self._global_step,
+            "name": name,
+            "values": values,
+            "num_bins": num_bins,
+            "precision": precision,
+        }
+        self.queue.put(message)
+
     def step(self, increment: int = 1):
         """Explicit step increment
 
@@ -328,10 +392,7 @@ class Board:
             ...         loss = train_step(batch)
             ...         board.log(loss=loss)  # All batches share same global_step
         """
-        if self._global_step is None:
-            self._global_step = 0
-        else:
-            self._global_step += increment
+        self._global_step += increment
 
     def flush(self):
         """Flush all pending logs to disk (blocking)
@@ -339,8 +400,10 @@ class Board:
         Normally logs are flushed automatically. Use this for
         critical checkpoints or before long-running operations.
         """
-        message = {"type": "flush"}
-        self.queue.put(message)
+        # Send flush signal
+        flush_msg = {"type": "flush"}
+        self.queue.put(flush_msg)
+        time.sleep(0.5)  # Give writer time to flush
 
     def finish(self):
         """Finish logging and clean up
@@ -351,51 +414,76 @@ class Board:
         if not hasattr(self, "writer_process"):
             return  # Already finished
 
+        if self._is_finishing:
+            logger.debug("finish() already in progress, skipping re-entrant call")
+            return
+
+        self._is_finishing = True
         logger.info(f"Finishing board: {self.name}")
+
+        # Check queue size
+        try:
+            queue_size = self.queue.qsize()
+            logger.info(f"Queue size: {queue_size} messages")
+        except:
+            queue_size = 0
 
         # Stop output capture
         if self.output_capture:
             self.output_capture.stop()
 
-        # Signal writer to stop
+        # Signal workers to stop
         self.stop_event.set()
+        logger.info("Stop event set, waiting for workers to drain queues...")
 
-        # Give writer a moment to start draining queue
-        time.sleep(0.1)
+        # Give workers a moment to start draining
+        time.sleep(0.5)
 
-        # Check queue size and wait for processing
-        try:
-            queue_size = self.queue.qsize()
-        except NotImplementedError:
-            queue_size = 0  # Some platforms don't support qsize()
+        # Poll queue to monitor draining (max 30 seconds)
+        max_wait_time = 30
+        start_time = time.time()
+        last_size = queue_size
 
-        if queue_size > 0:
-            logger.info(
-                f"Waiting for writer to process {queue_size} remaining messages..."
-            )
-            # Wait longer if queue has many messages
-            time.sleep(min(2.0, queue_size * 0.01))
+        while time.time() - start_time < max_wait_time:
+            try:
+                current_size = self.queue.qsize()
 
-        # Wait for writer to finish with generous timeout
-        timeout = max(10, queue_size * 0.02)  # At least 10s, plus 20ms per message
-        self.writer_process.join(timeout=timeout)
+                if current_size == 0:
+                    logger.info("Queue empty - waiting 1s for writer to finish...")
+                    time.sleep(1)
+                    break
+
+                # Log progress
+                if current_size != last_size:
+                    logger.info(f"Queue: {current_size} remaining")
+                    last_size = current_size
+
+                time.sleep(0.5)
+            except KeyboardInterrupt:
+                logger.warning("Interrupted during drain - forcing shutdown")
+                break
+            except:
+                break
+
+        if time.time() - start_time >= max_wait_time:
+            logger.error(f"Timeout after {max_wait_time}s - KILLING writer")
+            if self.writer_process.is_alive():
+                self.writer_process.kill()
+            logger.error("Writer killed, exiting")
+            delattr(self, "writer_process")
+            sys.exit(1)
+
+        # Wait for writer to exit
+        logger.info("Waiting for writer process to exit...")
+        self.writer_process.join(timeout=2)
 
         if self.writer_process.is_alive():
-            logger.warning(
-                "Writer process did not stop gracefully, terminating forcefully..."
-            )
-            self.writer_process.terminate()
-            self.writer_process.join(timeout=2)
-
-            # Force kill if still alive
-            if self.writer_process.is_alive():
-                logger.error("Writer process still alive, killing...")
-                self.writer_process.kill()
-                self.writer_process.join(timeout=1)
+            logger.warning("Writer still alive after 2s, killing...")
+            self.writer_process.kill()
 
         logger.info(f"Board finished: {self.name}")
 
-        # Remove finish method to prevent double-call
+        # Remove to prevent double-call
         delattr(self, "writer_process")
 
     def _register_signal_handlers(self):
@@ -408,15 +496,35 @@ class Board:
         """
 
         def signal_handler(signum, frame):
-            """Handle termination signals"""
+            """Handle termination signals (double Ctrl+C for force exit)"""
             sig_name = signal.Signals(signum).name
-            logger.warning(f"Received {sig_name}, shutting down gracefully...")
-            try:
-                self.finish()
-            except Exception as e:
-                logger.error(f"Error during signal handler cleanup: {e}")
-            finally:
-                sys.exit(0)
+            self._interrupt_count += 1
+
+            if self._interrupt_count == 1:
+                logger.warning(f"Received {sig_name}, shutting down gracefully...")
+                logger.warning("Press Ctrl+C again within 3 seconds to FORCE EXIT")
+                try:
+                    self.finish()
+                except Exception as e:
+                    logger.error(f"Error during graceful shutdown: {e}")
+                finally:
+                    logger.info("Shutdown complete")
+                    sys.exit(0)
+            elif self._interrupt_count == 2:
+                logger.error(
+                    "Second Ctrl+C - KILLING writer process (data will be lost!)"
+                )
+                if hasattr(self, "writer_process") and self.writer_process.is_alive():
+                    self.writer_process.kill()
+                    time.sleep(0.5)
+                logger.error("Force exit")
+                sys.exit(1)
+            else:
+                # Third+ interrupt - nuclear option
+                logger.error("THIRD Ctrl+C - IMMEDIATE EXIT")
+                import os
+
+                os._exit(1)
 
         # Register signal handlers (Ctrl+C, kill)
         signal.signal(signal.SIGINT, signal_handler)

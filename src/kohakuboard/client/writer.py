@@ -1,6 +1,15 @@
-"""Background writer process for non-blocking logging"""
+"""Background writer process for non-blocking logging
+
+NEW ARCHITECTURE:
+- Main dispatcher thread: reads mp.Queue, routes to per-DB queues
+- 4 worker threads: one per DuckDB file, processes independently
+- Each worker has persistent connection (released only on shutdown)
+- Parallel processing: histogram computation doesn't block scalar writes
+"""
 
 import multiprocessing as mp
+import queue
+import threading
 import time
 from pathlib import Path
 from queue import Empty
@@ -9,8 +18,7 @@ from typing import Any
 from loguru import logger
 
 from kohakuboard.client.media import MediaHandler
-from kohakuboard.client.storage import ParquetStorage
-from kohakuboard.client.storage_duckdb import DuckDBStorage
+from kohakuboard.client.storage import DuckDBStorage, HybridStorage, ParquetStorage
 
 
 class LogWriter:
@@ -33,7 +41,9 @@ class LogWriter:
         self.backend = backend
 
         # Initialize storage backend based on selection
-        if backend == "duckdb":
+        if backend == "hybrid":
+            self.storage = HybridStorage(board_dir / "data")
+        elif backend == "duckdb":
             self.storage = DuckDBStorage(board_dir / "data")
         else:  # parquet
             self.storage = ParquetStorage(board_dir / "data")
@@ -47,32 +57,70 @@ class LogWriter:
         self.auto_flush_interval = 5  # Auto-flush every 5 seconds (aggressive)
 
     def run(self):
-        """Main loop - process messages from queue"""
+        """Main loop - adaptive batching with exponential backoff"""
         logger.info(f"LogWriter started for {self.board_dir}")
+
+        # Adaptive sleep parameters
+        min_period = 0.01  # 10ms minimum sleep
+        max_period = 1.0  # 1s maximum sleep
+        consecutive_empty = 0  # Track consecutive empty queue reads
 
         try:
             while not self.stop_event.is_set():
                 try:
-                    # Get message from queue (shorter timeout for faster shutdown)
-                    message = self.queue.get(timeout=0.5)
-                    self._process_message(message)
-                    self.messages_processed += 1
+                    # Process ALL available messages in queue
+                    batch_count = 0
+                    batch_start = time.time()
 
-                except Empty:
-                    # No message - check if we need to auto-flush
-                    if time.time() - self.last_flush_time > self.auto_flush_interval:
-                        self._auto_flush()
+                    # Drain queue completely (up to 10k to allow stop_event check)
+                    while batch_count < 10000 and not self.stop_event.is_set():
+                        try:
+                            message = self.queue.get_nowait()
+                            self._process_message(message)
+                            self.messages_processed += 1
+                            batch_count += 1
+                        except Empty:
+                            break
+
+                    # Flush immediately after processing ANY messages
+                    if batch_count > 0:
+                        self.storage.flush_all()
+                        batch_time = time.time() - batch_start
+                        logger.debug(
+                            f"Processed and flushed {batch_count} messages in {batch_time*1000:.1f}ms"
+                        )
+                        self.last_flush_time = time.time()
+
+                        # Reset backoff counter - we had work to do
+                        consecutive_empty = 0
+                    else:
+                        # Queue empty - increase backoff
+                        consecutive_empty += 1
+
+                        # Adaptive sleep: min_period * 2^k, capped at max_period
+                        sleep_time = min(
+                            min_period * (2**consecutive_empty), max_period
+                        )
+
+                        # Sleep in small chunks to allow responsive shutdown
+                        # Instead of sleep(1.0), sleep(0.1) × 10 times and check stop_event
+                        slept = 0.0
+                        while slept < sleep_time and not self.stop_event.is_set():
+                            time.sleep(0.05)  # Sleep in 50ms chunks
+                            slept += 0.05
 
                 except KeyboardInterrupt:
-                    # Received interrupt in worker - stop gracefully
-                    logger.warning("Writer received interrupt, stopping...")
-                    break
+                    # Received interrupt in worker - DRAIN QUEUE FIRST
+                    logger.warning(
+                        "Writer received interrupt, draining queue before stopping..."
+                    )
+                    # Continue processing until stop_event is set by main process
 
                 except Exception as e:
                     logger.error(f"Error processing message: {e}")
 
-            # Final flush on shutdown
-            logger.info("LogWriter shutting down, flushing buffers...")
+            # Stop event is set - drain remaining queue
+            logger.info("Stop event detected, draining remaining queue...")
             self._final_flush()
 
         except KeyboardInterrupt:
@@ -95,6 +143,8 @@ class LogWriter:
             self._handle_media(message)
         elif msg_type == "table":
             self._handle_table(message)
+        elif msg_type == "histogram":
+            self._handle_histogram(message)
         elif msg_type == "flush":
             self._handle_flush()
         else:
@@ -163,6 +213,19 @@ class LogWriter:
 
         self.storage.append_table(step, global_step, name, table_data)
 
+    def _handle_histogram(self, message: dict):
+        """Handle histogram logging"""
+        step = message["step"]
+        global_step = message.get("global_step")
+        name = message["name"]
+        values = message["values"]
+        num_bins = message.get("num_bins", 64)
+        precision = message.get("precision", "compact")
+
+        self.storage.append_histogram(
+            step, global_step, name, values, num_bins, precision
+        )
+
     def _handle_flush(self):
         """Handle explicit flush request"""
         self.storage.flush_all()
@@ -178,27 +241,41 @@ class LogWriter:
         )
 
     def _final_flush(self):
-        """Final flush on shutdown"""
+        """Final flush on shutdown - drain ALL remaining messages"""
         try:
-            # Process remaining messages in queue (with limit to prevent hanging)
+            # Process ALL remaining messages in queue (no arbitrary limit!)
             remaining = 0
-            max_drain = 1000  # Limit drain to prevent infinite loop
+            last_log_count = 0
 
-            while not self.queue.empty() and remaining < max_drain:
+            while not self.queue.empty():
                 try:
                     message = self.queue.get_nowait()
                     self._process_message(message)
                     remaining += 1
+
+                    # Log progress every 1000 messages
+                    if remaining - last_log_count >= 1000:
+                        logger.info(
+                            f"Final drain progress: {remaining} messages processed..."
+                        )
+                        last_log_count = remaining
+
                 except Empty:
                     break
                 except KeyboardInterrupt:
-                    logger.warning("Final drain interrupted, stopping...")
-                    break
+                    logger.warning(
+                        f"Final drain interrupted after {remaining} messages!"
+                    )
+                    logger.warning("Press Ctrl+C again in main process for force exit")
+                    # Don't break - let main process handle force exit
                 except Exception as e:
-                    logger.error(f"Error during final drain: {e}")
-                    break
+                    logger.error(
+                        f"Error during final drain at message {remaining}: {e}"
+                    )
+                    # Continue processing other messages
 
             # Flush all buffers
+            logger.info(f"Flushing all buffers ({remaining} messages drained)...")
             self.storage.flush_all()
 
             # Close storage backend if it has a close method
@@ -206,7 +283,7 @@ class LogWriter:
                 self.storage.close()
 
             logger.info(
-                f"LogWriter stopped. Processed {self.messages_processed} messages "
+                f"LogWriter stopped. Processed {self.messages_processed} total messages "
                 f"({remaining} from final queue drain)"
             )
 

@@ -1,10 +1,12 @@
 """Media handling utilities for images, videos, and audio"""
 
 import hashlib
+import io
 import shutil
 from pathlib import Path
 from typing import Any, List, Union
 
+import numpy as np
 from loguru import logger
 
 
@@ -95,9 +97,11 @@ class MediaHandler:
             pil_image = self._to_pil(image)
 
             # Generate filename and hash
+            # Replace "/" with "__" in name to avoid subdirectory issues
+            safe_name = name.replace("/", "__")
             image_hash = self._hash_media(pil_image)
             ext = "png"
-            filename = f"{name}_{step:08d}_{image_hash[:8]}.{ext}"
+            filename = f"{safe_name}_{step:08d}_{image_hash[:8]}.{ext}"
             filepath = self.media_dir / filename
 
             # Save image
@@ -155,8 +159,10 @@ class MediaHandler:
         media_hash = self._hash_file(source_path)
 
         # Preserve original extension
+        # Replace "/" with "__" in name to avoid subdirectory issues
+        safe_name = name.replace("/", "__")
         ext = source_path.suffix.lstrip(".")
-        filename = f"{name}_{step:08d}_{media_hash[:8]}.{ext}"
+        filename = f"{safe_name}_{step:08d}_{media_hash[:8]}.{ext}"
         dest_path = self.media_dir / filename
 
         # Copy file if it doesn't exist (deduplication)
@@ -205,7 +211,6 @@ class MediaHandler:
 
             # Numpy array
             if hasattr(image, "__array__"):
-                import numpy as np
 
                 arr = np.array(image)
 
@@ -238,8 +243,6 @@ class MediaHandler:
 
     def _hash_media(self, pil_image) -> str:
         """Generate hash for image deduplication (also used as media ID)"""
-        import io
-
         # Convert to bytes
         buf = io.BytesIO()
         pil_image.save(buf, format="PNG")

@@ -1,6 +1,7 @@
 kohakuboard/
 !src/kohakuboard
-*.backup.*
+!docker/kohakuboard
+*.backup*
 .DS_store
 *_old.*
 *_refactor.*
@@ -18,6 +19,7 @@ docker-compose.yml
 kohakuhub.conf
 lint-reports/
 /logs
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

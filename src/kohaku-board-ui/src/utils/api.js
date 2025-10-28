@@ -3,6 +3,7 @@ import axios from "axios";
 const api = axios.create({
   baseURL: "/api",
   timeout: 30000,
+  withCredentials: true, // For session cookies
 });
 
 /**
@@ -74,7 +75,43 @@ export async function generateMockData(config) {
 }
 
 // ============================================================================
-// BOARDS API - Real data from file system
+// SYSTEM API - Mode detection
+// ============================================================================
+
+/**
+ * Get system information (mode, auth requirements, user info)
+ * @returns {Promise<Object>} System info
+ */
+export async function getSystemInfo() {
+  const response = await api.get("/system/info");
+  return response.data;
+}
+
+// ============================================================================
+// PROJECTS API - Project and run management
+// ============================================================================
+
+/**
+ * Fetch all accessible projects
+ * @returns {Promise<Object>} Projects list
+ */
+export async function fetchProjects() {
+  const response = await api.get("/projects");
+  return response.data;
+}
+
+/**
+ * Fetch runs in a project
+ * @param {string} projectName - Project name
+ * @returns {Promise<Object>} Runs list with project info
+ */
+export async function fetchProjectRuns(projectName) {
+  const response = await api.get(`/projects/${projectName}/runs`);
+  return response.data;
+}
+
+// ============================================================================
+// BOARDS API - Real data from file system (LEGACY - kept for compatibility)
 // ============================================================================
 
 /**
@@ -103,6 +140,119 @@ export async function fetchBoardMetadata(boardId) {
  */
 export async function fetchBoardSummary(boardId) {
   const response = await api.get(`/boards/${boardId}/summary`);
+  return response.data;
+}
+
+// ============================================================================
+// RUN DATA API - Project-based run access
+// ============================================================================
+
+/**
+ * Fetch run summary
+ * @param {string} project - Project name
+ * @param {string} runId - Run ID
+ * @returns {Promise<Object>} Run summary
+ */
+export async function fetchRunSummary(project, runId) {
+  const response = await api.get(`/projects/${project}/runs/${runId}/summary`);
+  return response.data;
+}
+
+/**
+ * Fetch available scalar metrics for a run
+ * @param {string} project - Project name
+ * @param {string} runId - Run ID
+ * @returns {Promise<Object>} Object with metrics array
+ */
+export async function fetchRunScalars(project, runId) {
+  const response = await api.get(`/projects/${project}/runs/${runId}/scalars`);
+  return response.data;
+}
+
+/**
+ * Fetch scalar data for a specific metric
+ * @param {string} project - Project name
+ * @param {string} runId - Run ID
+ * @param {string} metric - Metric name
+ * @param {Object} params - Query parameters (limit, etc.)
+ * @returns {Promise<Object>} Object with metric name and data array
+ */
+export async function fetchRunScalarData(project, runId, metric, params = {}) {
+  const response = await api.get(
+    `/projects/${project}/runs/${runId}/scalars/${metric}`,
+    {
+      params,
+    },
+  );
+  return response.data;
+}
+
+/**
+ * Fetch available media log names
+ * @param {string} project - Project name
+ * @param {string} runId - Run ID
+ * @returns {Promise<Object>} Object with media array
+ */
+export async function fetchRunMedia(project, runId) {
+  const response = await api.get(`/projects/${project}/runs/${runId}/media`);
+  return response.data;
+}
+
+/**
+ * Fetch media data for a specific log name
+ * @param {string} project - Project name
+ * @param {string} runId - Run ID
+ * @param {string} name - Media log name
+ * @param {Object} params - Query parameters (limit, etc.)
+ * @returns {Promise<Object>} Object with name and data array
+ */
+export async function fetchRunMediaData(project, runId, name, params = {}) {
+  const response = await api.get(
+    `/projects/${project}/runs/${runId}/media/${name}`,
+    {
+      params,
+    },
+  );
+  return response.data;
+}
+
+/**
+ * Get media file URL
+ * @param {string} project - Project name
+ * @param {string} runId - Run ID
+ * @param {string} filename - Media filename
+ * @returns {string} Media file URL
+ */
+export function getRunMediaFileUrl(project, runId, filename) {
+  return `/api/projects/${project}/runs/${runId}/media/files/${filename}`;
+}
+
+/**
+ * Fetch available table log names
+ * @param {string} project - Project name
+ * @param {string} runId - Run ID
+ * @returns {Promise<Object>} Object with tables array
+ */
+export async function fetchRunTables(project, runId) {
+  const response = await api.get(`/projects/${project}/runs/${runId}/tables`);
+  return response.data;
+}
+
+/**
+ * Fetch table data for a specific log name
+ * @param {string} project - Project name
+ * @param {string} runId - Run ID
+ * @param {string} name - Table log name
+ * @param {Object} params - Query parameters (limit, etc.)
+ * @returns {Promise<Object>} Object with name and data array
+ */
+export async function fetchRunTableData(project, runId, name, params = {}) {
+  const response = await api.get(
+    `/projects/${project}/runs/${runId}/tables/${name}`,
+    {
+      params,
+    },
+  );
   return response.data;
 }
 
@@ -187,5 +337,41 @@ export async function fetchTableData(boardId, name, params = {}) {
   });
   return response.data;
 }
+
+/**
+ * Auth API
+ */
+export const authAPI = {
+  register: (data) => api.post("/auth/register", data),
+  login: (data) => api.post("/auth/login", data),
+  logout: () => api.post("/auth/logout"),
+  me: () => api.get("/auth/me"),
+  createToken: (data) => api.post("/auth/tokens/create", data),
+  listTokens: () => api.get("/auth/tokens"),
+  revokeToken: (id) =>
+    axios.delete(`/api/auth/tokens/${id}`, { withCredentials: true }),
+  listUserOrgs: (username) =>
+    axios.get(`/org/users/${username}/orgs`, { withCredentials: true }),
+};
+
+/**
+ * Organization API
+ */
+export const orgAPI = {
+  create: (data) => axios.post("/org/create", data, { withCredentials: true }),
+  getInfo: (orgName) => axios.get(`/org/${orgName}`, { withCredentials: true }),
+  addMember: (orgName, data) =>
+    axios.post(`/org/${orgName}/members`, data, { withCredentials: true }),
+  removeMember: (orgName, username) =>
+    axios.delete(`/org/${orgName}/members/${username}`, {
+      withCredentials: true,
+    }),
+  updateMemberRole: (orgName, username, data) =>
+    axios.put(`/org/${orgName}/members/${username}`, data, {
+      withCredentials: true,
+    }),
+  listMembers: (orgName) =>
+    axios.get(`/org/${orgName}/members`, { withCredentials: true }),
+};
 
 export default api;

@@ -13,11 +13,17 @@ declare module 'vue' {
   export interface GlobalComponents {
     ConfigurableChartCard: typeof import('./components/ConfigurableChartCard.vue')['default']
     DataTable: typeof import('./components/DataTable.vue')['default']
+    ElAlert: typeof import('element-plus/es')['ElAlert']
+    ElBreadcrumb: typeof import('element-plus/es')['ElBreadcrumb']
+    ElBreadcrumbItem: typeof import('element-plus/es')['ElBreadcrumbItem']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElCard: typeof import('element-plus/es')['ElCard']
     ElCol: typeof import('element-plus/es')['ElCol']
     ElDialog: typeof import('element-plus/es')['ElDialog']
     ElDivider: typeof import('element-plus/es')['ElDivider']
+    ElDropdown: typeof import('element-plus/es')['ElDropdown']
+    ElDropdownItem: typeof import('element-plus/es')['ElDropdownItem']
+    ElDropdownMenu: typeof import('element-plus/es')['ElDropdownMenu']
     ElEmpty: typeof import('element-plus/es')['ElEmpty']
     ElForm: typeof import('element-plus/es')['ElForm']
     ElFormItem: typeof import('element-plus/es')['ElFormItem']
@@ -40,8 +46,7 @@ declare module 'vue' {
     RouterView: typeof import('vue-router')['RouterView']
     ScatterPlot: typeof import('./components/ScatterPlot.vue')['default']
     TableViewer: typeof import('./components/TableViewer.vue')['default']
-  }
-  export interface GlobalDirectives {
-    vLoading: typeof import('element-plus/es')['ElLoadingDirective']
+    TheFooter: typeof import('./components/layout/TheFooter.vue')['default']
+    TheHeader: typeof import('./components/layout/TheHeader.vue')['default']
   }
 }

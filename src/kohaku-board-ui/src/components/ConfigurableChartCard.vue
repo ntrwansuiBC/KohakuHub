@@ -10,11 +10,21 @@ const props = defineProps({
   availableMetrics: Array,
   initialConfig: Object,
   experimentId: String,
+  project: String, // Optional: if provided, use runs API instead of experiments API
+  tabName: String,
+  hoverSyncEnabled: {
+    type: Boolean,
+    default: true,
+  },
 });
 
 const emit = defineEmits(["update:config", "remove"]);
 
 console.log(`[${props.cardId}] Component created`);
+console.log(`[${props.cardId}] Hover sync props:`, {
+  tabName: props.tabName,
+  hoverSyncEnabled: props.hoverSyncEnabled,
+});
 
 // Direct reference to props
 const cfg = props.initialConfig;
@@ -76,21 +86,26 @@ watch(
   async (type) => {
     isCardLoading.value = true;
     try {
+      // Use runs API if project is provided, otherwise use experiments API
+      const baseUrl = props.project
+        ? `/api/projects/${props.project}/runs/${props.experimentId}`
+        : `/api/experiments/${props.experimentId}`;
+
       if (type === "media" && props.initialConfig.mediaName) {
         const res = await fetch(
-          `/api/experiments/${props.experimentId}/media/${props.initialConfig.mediaName}`,
+          `${baseUrl}/media/${props.initialConfig.mediaName}`,
         );
         const data = await res.json();
         mediaData.value = data.data;
       } else if (type === "histogram" && props.initialConfig.histogramName) {
         const res = await fetch(
-          `/api/experiments/${props.experimentId}/histograms/${props.initialConfig.histogramName}`,
+          `${baseUrl}/histograms/${props.initialConfig.histogramName}`,
         );
         const data = await res.json();
         histogramData.value = data.data;
       } else if (type === "table" && props.initialConfig.tableName) {
         const res = await fetch(
-          `/api/experiments/${props.experimentId}/tables/${props.initialConfig.tableName}`,
+          `${baseUrl}/tables/${props.initialConfig.tableName}`,
         );
         const data = await res.json();
         tableData.value = data.data;
@@ -101,6 +116,28 @@ watch(
   },
   { immediate: true },
 );
+
+const hasDataError = computed(() => {
+  const config = props.initialConfig;
+  if (cardType.value !== "line") return false;
+  if (!config.xMetric || !config.yMetrics || config.yMetrics.length === 0)
+    return false;
+
+  const xData = props.sparseData[config.xMetric];
+  if (!xData || xData.length === 0) return true;
+
+  // Check if all y metrics have no valid data (including NaN/inf as valid!)
+  const allEmpty = config.yMetrics.every((yMetric) => {
+    const yData = props.sparseData[yMetric];
+    if (!yData || yData.length === 0) return true;
+
+    // Check if there's at least ONE non-null value (including NaN/inf)
+    const hasAnyData = yData.some((val) => val !== null);
+    return !hasAnyData;
+  });
+
+  return allEmpty;
+});
 
 const processedChartData = computed(() => {
   const config = props.initialConfig;
@@ -118,11 +155,14 @@ const processedChartData = computed(() => {
   return config.yMetrics
     .map((yMetric) => {
       const yData = props.sparseData[yMetric];
-      if (!yData) return null;
+      if (!yData || yData.length === 0) return null; // Handle empty data gracefully
 
       const x = [];
       const y = [];
       let lastXValue = null;
+      let nanCount = 0;
+      let infCount = 0;
+      let negInfCount = 0;
 
       for (let i = 0; i < xData.length; i++) {
         let xVal = xData[i];
@@ -138,12 +178,38 @@ const processedChartData = computed(() => {
         }
 
         if (xVal !== null) lastXValue = xVal;
+
+        // Include NaN/inf values (they are not null!)
+        // Only skip if yVal is actually null (missing data)
         if (yVal !== null && lastXValue !== null) {
           x.push(lastXValue);
           y.push(yVal);
+
+          // Count special values for logging
+          if (isNaN(yVal)) {
+            nanCount++;
+          } else if (yVal === Infinity) {
+            infCount++;
+          } else if (yVal === -Infinity) {
+            negInfCount++;
+          }
         }
       }
 
+      const specialValuesLog = [];
+      if (nanCount > 0) specialValuesLog.push(`NaN=${nanCount}`);
+      if (infCount > 0) specialValuesLog.push(`+inf=${infCount}`);
+      if (negInfCount > 0) specialValuesLog.push(`-inf=${negInfCount}`);
+
+      console.log(
+        `[${props.cardId}] ${yMetric}: collected ${y.length} points` +
+          (specialValuesLog.length > 0
+            ? ` (${specialValuesLog.join(", ")})`
+            : ""),
+      );
+
+      // Return series even if all values are NaN/inf (x/y might be empty but we still need the series)
+      // The LinePlot component will handle special values
       return { name: yMetric, x, y };
     })
     .filter((d) => d !== null);
@@ -158,12 +224,22 @@ function saveTitle() {
 function emitConfig(updates = {}) {
   const newConfig = { ...props.initialConfig, ...updates };
   console.log(`[${props.cardId}] emitConfig:`, updates, "→", newConfig);
+  console.log(`[${props.cardId}] Emitting update:config to parent`);
   emit("update:config", { id: props.cardId, config: newConfig });
 }
 
 function resetView() {
+  console.log(
+    `[${props.cardId}] resetView called, plotRef:`,
+    !!plotRef.value,
+    "has resetView:",
+    !!plotRef.value?.resetView,
+  );
   if (plotRef.value?.resetView) {
+    console.log(`[${props.cardId}] Calling plotRef.resetView()`);
     plotRef.value.resetView();
+  } else {
+    console.warn(`[${props.cardId}] plotRef.resetView not available`);
   }
 }
 
@@ -181,6 +257,7 @@ function startResizeBottom(e) {
   const startY = e.clientY;
   const startHeight = props.initialConfig.height;
   let tempHeight = startHeight;
+  const shiftWasPressed = e.shiftKey;
 
   const onMove = (e) => {
     tempHeight = Math.max(
@@ -188,10 +265,30 @@ function startResizeBottom(e) {
       Math.min(1000, startHeight + (e.clientY - startY)),
     );
     localHeight.value = tempHeight;
+
+    // If shift pressed, emit realtime sync
+    if (shiftWasPressed) {
+      emit("update:config", {
+        id: props.cardId,
+        config: { ...props.initialConfig, height: tempHeight },
+        syncAll: true,
+        realtime: true, // Flag for realtime updates during drag
+      });
+    }
   };
 
   const onUp = () => {
-    emitConfig({ height: tempHeight });
+    // Final update
+    if (shiftWasPressed) {
+      emit("update:config", {
+        id: props.cardId,
+        config: { ...props.initialConfig, height: tempHeight },
+        syncAll: true,
+        realtime: false,
+      });
+    } else {
+      emitConfig({ height: tempHeight });
+    }
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseup", onUp);
   };
@@ -205,6 +302,7 @@ function startResizeRight(e) {
   e.stopPropagation();
 
   isResizingWidth.value = true;
+  const shiftWasPressed = e.shiftKey;
   const startX = e.clientX;
   const cardEl = e.target.closest(".chart-card-wrapper");
   if (!cardEl) return;
@@ -245,6 +343,16 @@ function startResizeRight(e) {
 
     previewWidth.value = closest.p;
     localWidth.value = closest.p;
+
+    // If shift pressed, emit realtime sync
+    if (shiftWasPressed) {
+      emit("update:config", {
+        id: props.cardId,
+        config: { ...props.initialConfig, widthPercent: closest.p },
+        syncAll: true,
+        realtime: true,
+      });
+    }
   };
 
   const onUp = () => {
@@ -252,10 +360,21 @@ function startResizeRight(e) {
       previewWidth.value !== null &&
       previewWidth.value !== props.initialConfig.widthPercent
     ) {
-      console.log(
-        `[${props.cardId}] Width actually changed, emitting with height to maintain size`,
-      );
-      emitConfig({ widthPercent: localWidth.value, height: localHeight.value });
+      console.log(`[${props.cardId}] Width changed, shift=${shiftWasPressed}`);
+      // Final update
+      if (shiftWasPressed) {
+        emit("update:config", {
+          id: props.cardId,
+          config: { widthPercent: localWidth.value, height: localHeight.value },
+          syncAll: true,
+          realtime: false,
+        });
+      } else {
+        emitConfig({
+          widthPercent: localWidth.value,
+          height: localHeight.value,
+        });
+      }
     } else {
       console.log(
         `[${props.cardId}] Width unchanged (${previewWidth.value}), not emitting`,
@@ -340,6 +459,16 @@ function startResizeRight(e) {
               @click.stop="isEditingTitle = true"
             />
             <el-button
+              v-if="!isEditingTitle"
+              size="small"
+              text
+              type="danger"
+              @click.stop="$emit('remove')"
+              title="Remove Card"
+            >
+              <i class="i-ep-delete"></i>
+            </el-button>
+            <el-button
               v-else
               size="small"
               type="primary"
@@ -369,15 +498,6 @@ function startResizeRight(e) {
             >
               <i class="i-ep-setting"></i>
             </el-button>
-            <el-button
-              size="small"
-              type="danger"
-              text
-              @click.stop="$emit('remove')"
-              title="Remove Card"
-            >
-              <i class="i-ep-delete"></i>
-            </el-button>
           </div>
         </div>
       </template>
@@ -392,38 +512,80 @@ function startResizeRight(e) {
         >
           <div class="text-gray-500 dark:text-gray-400">Loading...</div>
         </div>
+        <div
+          v-else-if="hasDataError && cardType === 'line'"
+          class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900"
+        >
+          <div class="text-center">
+            <div class="text-gray-500 dark:text-gray-400 mb-2">
+              No data available
+            </div>
+            <div class="text-xs text-gray-400 dark:text-gray-500">
+              Check metric name or data source
+            </div>
+          </div>
+        </div>
         <LinePlot
-          v-if="cardType === 'line' && processedChartData.length > 0"
+          v-else-if="cardType === 'line' && processedChartData.length > 0"
           ref="plotRef"
           :data="processedChartData"
           :xaxis="props.initialConfig.xMetric"
           yaxis="Value"
           :height="localHeight"
           :hide-toolbar="true"
+          :smoothing-mode="props.initialConfig.smoothingMode"
+          :smoothing-value="props.initialConfig.smoothingValue"
+          :downsample-rate="props.initialConfig.downsampleRate"
+          :tab-name="props.tabName"
+          :chart-id="props.cardId"
+          :hover-sync-enabled="props.hoverSyncEnabled"
+          @update:smoothing-mode="(v) => emitConfig({ smoothingMode: v })"
+          @update:smoothing-value="(v) => emitConfig({ smoothingValue: v })"
+          @update:downsample-rate="(v) => emitConfig({ downsampleRate: v })"
         />
         <MediaViewer
           v-else-if="cardType === 'media' && mediaData"
           :media-data="mediaData"
           :height="localHeight"
-          :current-step="props.initialConfig.currentStep || 0"
+          :current-step="
+            props.initialConfig.currentStep ??
+            (mediaData.length > 0 ? mediaData[mediaData.length - 1].step : 0)
+          "
           :card-id="props.cardId"
+          :auto-advance-to-latest="
+            props.initialConfig.autoAdvanceToLatest !== false
+          "
           @update:current-step="(s) => emitConfig({ currentStep: s })"
+          @update:auto-advance="(v) => emitConfig({ autoAdvanceToLatest: v })"
         />
         <HistogramViewer
           v-else-if="cardType === 'histogram' && histogramData"
+          ref="plotRef"
           :histogram-data="histogramData"
           :height="localHeight"
           :current-step="props.initialConfig.currentStep || 0"
           :card-id="props.cardId"
+          :initial-mode="props.initialConfig.histogramMode || 'single'"
+          :downsample-rate="props.initialConfig.downsampleRate || -1"
+          :x-axis="props.initialConfig.histogramXAxis || 'global_step'"
           @update:current-step="(s) => emitConfig({ currentStep: s })"
+          @update:mode="(m) => emitConfig({ histogramMode: m })"
+          @update:x-axis="(x) => emitConfig({ histogramXAxis: x })"
         />
         <TableViewer
           v-else-if="cardType === 'table' && tableData"
           :table-data="tableData"
           :height="localHeight"
-          :current-step="props.initialConfig.currentStep || 0"
+          :current-step="
+            props.initialConfig.currentStep ??
+            (tableData.length > 0 ? tableData[tableData.length - 1].step : 0)
+          "
           :card-id="props.cardId"
+          :auto-advance-to-latest="
+            props.initialConfig.autoAdvanceToLatest !== false
+          "
           @update:current-step="(s) => emitConfig({ currentStep: s })"
+          @update:auto-advance="(v) => emitConfig({ autoAdvanceToLatest: v })"
         />
         <el-empty v-else description="Select metrics" />
       </div>
